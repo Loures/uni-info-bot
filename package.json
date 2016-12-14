@@ -1,0 +1,16 @@
+{
+  "name": "uni-info-bot",
+  "version": "0.0.1",
+  "description": "Bot orario e appunti di informatica",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node botv2.js; node websrv/index.js"
+  },
+  "author": "loures",
+  "license": "ISC",
+  "dependencies": {
+    "cron": "^1.1.1",
+    "node-telegram-bot-api": "^0.24.0",
+    "request": "^2.78.0"
+  }
+}
