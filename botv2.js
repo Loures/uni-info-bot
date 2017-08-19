@@ -5,13 +5,23 @@ var util = require("util");
 var TelegramBot = require("node-telegram-bot-api");
 var fs = require("fs");
 var Cron = require("cron");
+var util = require("util");
 
 //Fetch del GOA e manipolazione dati
 
 var GOA = "";
-var SETTINGS = JSON.parse(fs.readFileSync("settings.json", {encoding: "utf8"}));
+var SETTINGS;
+var notify = false;
 
-request.get("http://margot.di.unipi.it/test8/goa/2016/1/gettimetable/Informatica", function(_, _, body) {GOA = JSON.parse(body); GOA = formatGoa(GOA); load();})
+if (!fs.existsSync("settings.json")) {
+    fs.writeFileSync("settings.json", JSON.stringify({api: "", sysops: []}, null, "\t"));
+    new Error("You need to edit settings.json in order to use this bot");
+} else {
+    SETTINGS = JSON.parse(fs.readFileSync("settings.json", {encoding: "utf8"}));
+}
+
+
+request.get("http://margot.di.unipi.it/test9/goa/2016/2/gettimetable/Informatica", function(_, _, body) {GOA = JSON.parse(body); GOA = formatGoa(GOA); load();})
 
 function Lezione() {}
 
@@ -80,7 +90,7 @@ function formatGoa(GOA) { //fa un po' schifo ma il JSON di GOA fa tanto schifo :
         day.rooms.forEach(function(room) {
             if (room.lessons && room.lessons.length > 0) {
                 room.lessons.forEach(function(lesson) {
-                    if (lessonCheck(lesson, function(l) {return l.ownername == "INF-L" && l.semester == 1})) {
+                    if (lessonCheck(lesson, function(l) {return l.ownername == "INF-L"})) {
                         var skip = false;
                         for (prop in arr) {
                             arr[prop].forEach(function(l) {
@@ -116,6 +126,7 @@ function formatGoa(GOA) { //fa un po' schifo ma il JSON di GOA fa tanto schifo :
             } else {return 0;}
         })
     })
+    console.log(util.inspect(arr, {depth: null}));
     return arr;
 }
 
@@ -128,11 +139,17 @@ function load() {
 
 var bot = new TelegramBot(SETTINGS.api, {polling: true});
 
+//const anni = [
+//    [/Analisi matematica - [AB]/, /Programmazione I e laboratorio - [AB]/, /Logica per la programmazione - [AB]/],
+//    [/Architettura degli elaboratori - [AB]/, /Calcolo delle probabilita' e statistica/, /Programmazione II - [AB]/, /Ricerca operativa - [AB]/],
+//    [/Crittografia/, /Elementi di calcolabilita' e complessita'/, /Reti di calcolatori e laboratorio - [AB]/, /Programmazione di Interfacce/]
+//];
+
 const anni = [
-    [/Analisi matematica - [AB]/, /Programmazione I e laboratorio - [AB]/, /Logica per la programmazione - [AB]/],
-    [/Architettura degli elaboratori - [AB]/, /Calcolo delle probabilita' e statistica/, /Programmazione II - [AB]/, /Ricerca operativa - [AB]/],
-    [/Crittografia/, /Elementi di calcolabilita' e complessita'/, /Reti di calcolatori e laboratorio - [AB]/, /Programmazione di Interfacce/]
-];
+    [/Algoritmica e laboratorio - [AB]/, /Fisica - [AB]/, /Matematica discreta e algebra lineare - [AB]/],
+    [/Basi di dati - [AB]/, /Calcolo numerico - [AB]/, /Ingegneria del software - [AB]/, /Sistemi Operativi e laboratorio - [AB]/],
+    [/Esperienze di programmazione/, /Gestione di reti/, /Introduzione all?Intelligenza Artificiale/, /Laboratorio di basi di dati/, /Sicurezza di Sistemi ICT/, /Sviluppo di Applicazioni Mobili/]
+]
 
 //Iscrizioni
 
@@ -277,10 +294,12 @@ function notificaTutti() {
 }
 function startCron() {
     var job2 = new Cron.CronJob("0 1 * * 1-5", function() {
-        request.get("http://margot.di.unipi.it/test8/goa/2016/1/gettimetable/Informatica", function(_, _, body) {GOA = JSON.parse(body); GOA = formatGoa(GOA);})
+        request.get("http://margot.di.unipi.it/test9/goa/2016/2/gettimetable/Informatica", function(_, _, body) {GOA = JSON.parse(body); GOA = formatGoa(GOA);})
     });
-    var job = new Cron.CronJob("0 * * * 1-5", notificaTutti);
-    job.start();
+    if (notify) {
+        var job = new Cron.CronJob("0 * * * 1-5", notificaTutti);
+        job.start();
+    }
     job2.start();
 }
 
@@ -312,7 +331,10 @@ const LITERALS = {
     ],
     lezioni: [
         ["Analisi Matematica", "AM"],
-        ["Programmazione I", "PRL"]
+        ["Programmazione I", "PRL"],
+        ["Matematica Discreta e Algebra Lineare", "MDAL"],
+        ["Fisica", "FIS"],
+        ["Algoritmica e laboratorio", "AIL"]
     ],
     mesi: [
         ["Gennaio", "01"],
@@ -324,9 +346,9 @@ const LITERALS = {
         ["Luglio", "07"],
         ["Agosto", "08"],
         ["Settembre", "09"],
-        ["Ottobre", 10],
-        ["Novembre", 11],
-        ["Dicembre", 12]
+        ["Ottobre", "10"],
+        ["Novembre", "11"],
+        ["Dicembre", "12"]
     ]
 }
 
@@ -444,9 +466,9 @@ bot.on("message", function(msg) {
 bot.onText(/Indietro/, function(msg, match) {
     var id = msg.chat.id;
     if (STATI[id] && STATI[id].length > 1) {
-        STATI[id].pop();
+        var stato = STATI[id].pop();
         var last = STATI[id][STATI[id].length - 1][0]
-        var result = opzioni[last].trigger(id);
+        var result = opzioni[last].trigger(id, stato[0] == "lezione" ? "appunti" : null);
         if (last != "menu") result.bottoni.push("Indietro");
         var obj = buildKeyboard(result.bottoni);
         obj.parse_mode = "Markdown";
@@ -461,6 +483,12 @@ var opzioni = {};
 function Opzione(id, text) {
     this.id = id;
     this.text = text;
+}
+
+function handleAppunti(id, trigger) {
+    var corso = percorso(id)[2];
+        var obj = buildKeyboard();
+        bot.sendMessage(id, "Quale corso ti interessa?", obj)
 }
 
 Opzione.prototype.trigger = function(id, text) {return this.funzione(id, text)}
@@ -599,6 +627,9 @@ opzioni.corsi.funzione = function(id, trigger) {
         case "iscriviti":
         handleIscrizione(id);
         break;
+        case "appunti":
+        return {text: "Che lezione ti interessa?", bottoni: LITERALS.lezioni.map(function(el) {return el[0]})};
+        break;
     }
 }
 
@@ -628,14 +659,16 @@ opzioni.disiscrizione.funzione = function(id) {
 opzioni.appunti = new Opzione("Appunti");
 opzioni.appunti.funzione = function(id) {
     //bot.sendMessage(id, "*Cerchiamo uno studente per caricare appunti per il corso B\nContattare *@AlexArrig* o *@loures96* per maggiori informazioni*", {parse_mode: "Markdown"});
-    return {text: "*(SOLO CORSO A)*\nChe lezione ti interessa?", bottoni: ["Programmazione I", "Analisi Matematica"]};
+    return {text: "Che corso ti interessa?", bottoni: ["Corso A", "Corso B"]};
 }
 
-opzioni.lezione = new Opzione(["Programmazione I", "Analisi Matematica"])
+opzioni.lezione = new Opzione(LITERALS.lezioni.map(function(el) {return el[0]}))
 opzioni.lezione.funzione = function(id, trigger) {
     var bottoni = [];
-    var files = fs.readdirSync("./websrv/uploads/" + getLiteral(LITERALS.lezioni, ultimoMsg(id)))
-    var exp = /(PRL|LPP|AM)_(\d\d)\-(\d\d)-(\d\d)\.pdf/;
+    var lez = ultimoMsg(id)
+    var corso = ultimoMsg(id, 1).charAt(ultimoMsg(id, 1).length - 1);
+    var files = fs.readdirSync("./websrv/uploads" + corso + "/" + getLiteral(LITERALS.lezioni, lez))
+    var exp = /(PRL|LPP|AM|MDAL|AIL|FIS)_(\d\d)\-(\d\d)-(\d\d)\.pdf/;
     files.sort(function(a, b) { //è la cosa più brutta del mondo ma whatever
         var match = exp.exec(a);
         var giorno = match[2];
@@ -651,6 +684,7 @@ opzioni.lezione.funzione = function(id, trigger) {
             return -1;
         } else {return 1}
     })
+    if (files.length <= 0) {return {text: "Non ci sono appunti per questo corso"}};
     files.forEach(function(name) {
         var match = exp.exec(name);
         bottoni.push(match[2] + " " + getLiteral(LITERALS.mesi, match[3]) + " 20" + match[4]);
@@ -660,11 +694,12 @@ opzioni.lezione.funzione = function(id, trigger) {
 
 opzioni.fetchAppunti = new Opzione(/(\d\d) (Gennaio|Febbraio|Marzo|Aprile|Maggio|Giugno|Luglio|Agosto|Settembre|Ottobre|Novembre|Dicembre) 20(\d\d)/);
 opzioni.fetchAppunti.funzione = function(id) {
+    var corso = ultimoMsg(id, 2).charAt(ultimoMsg(id, 2).length - 1);
     var match = /(\d\d) (Gennaio|Febbraio|Marzo|Aprile|Maggio|Giugno|Luglio|Agosto|Settembre|Ottobre|Novembre|Dicembre) 20(\d\d)/.exec(ultimoMsg(id));
     var sigla = getLiteral(LITERALS.lezioni, ultimoMsg(id, 1));
     var obj = buildKeyboard(opzioni.menu.trigger(id).bottoni)
     obj.parse_mode = "Markdown";
-    bot.sendDocument(id, "./websrv/uploads/" + sigla + "/" + (sigla + "_" + match[1] + "-" + getLiteral(LITERALS.mesi, match[2]) + "-" + match[3] + ".pdf"), obj);
+    bot.sendDocument(id, "./websrv/uploads" + corso + "/" + sigla + "/" + (sigla + "_" + match[1] + "-" + getLiteral(LITERALS.mesi, match[2]) + "-" + match[3] + ".pdf"), obj);
 }
 
 opzioni.informazioni = new Opzione("Informazioni");
